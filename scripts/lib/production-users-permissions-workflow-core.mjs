@@ -369,6 +369,115 @@ export function logSessionSwitchDiagnostic(log, input = {}) {
   );
 }
 
+export function getTransportCookieNames(transport) {
+  if (!transport?.getCookies) {
+    return [];
+  }
+  return Object.keys(transport.getCookies()).sort();
+}
+
+export function detectTransportCookieMutation(before = [], after = []) {
+  const beforeSet = new Set(before);
+  const afterSet = new Set(after);
+  return (
+    before.length !== after.length ||
+    before.some((name) => !afterSet.has(name)) ||
+    after.some((name) => !beforeSet.has(name))
+  );
+}
+
+/** Session snapshot for scope diagnostics — never logs cookie values. */
+export async function readTransportSessionSnapshot(transport) {
+  const session = await transport.request("GET", "/api/auth/company/session");
+  assertNoPasswordHash(session.json, "transport session snapshot");
+  const role = canonicalStoredRole(session.json?.user?.role);
+  return {
+    httpStatus: session.status,
+    role,
+    companyContextValid: session.json?.companyContextValid,
+    reasonCode: trim(session.json?.code || session.json?.reasonCode || session.json?.blocker),
+    ok: session.status === 200 && session.json?.ok === true && role === "Admin",
+  };
+}
+
+/** Safe structured diagnostics for company-scope / cross-company negative probes (no secrets). */
+export function logCompanyScopeDiagnostic(log, input = {}) {
+  log(
+    `[user-permissions:company-scope] ${JSON.stringify({
+      phase: trim(input.phase) || undefined,
+      method: trim(input.method) || undefined,
+      safeRoute: trim(input.safeRoute) || undefined,
+      transportId: trim(input.transportId) || undefined,
+      httpStatus: input.httpStatus ?? undefined,
+      expectedStatus: trim(input.expectedStatus) || undefined,
+      cookieNamesBefore: Array.isArray(input.cookieNamesBefore) ? input.cookieNamesBefore : undefined,
+      cookieNamesAfter: Array.isArray(input.cookieNamesAfter) ? input.cookieNamesAfter : undefined,
+      setCookieReturned: input.setCookieReturned ?? undefined,
+      sessionRoleBefore: trim(input.sessionRoleBefore) || undefined,
+      sessionRoleAfter: trim(input.sessionRoleAfter) || undefined,
+      companyContextValid: input.companyContextValid ?? undefined,
+      reasonCode: trim(input.reasonCode) || undefined,
+      durationMs: input.durationMs ?? undefined,
+      ok: input.ok ?? undefined,
+    })}`,
+  );
+}
+
+/** Login Admin on a disposable transport for negative scope/isolation probes. */
+export async function createIsolatedAdminProbeTransport(
+  createRoleTransportRaw,
+  wrapRoleTransport,
+  config,
+  log = () => {},
+  stage = "scope_probe",
+) {
+  const probeTransport = wrapRoleTransport(createRoleTransportRaw());
+  const started = Date.now();
+  const login = await performProductionSmokeLogin(config, probeTransport);
+  if (!login.ok) {
+    logCompanyScopeDiagnostic(log, {
+      phase: `${stage}_probe_login_failed`,
+      transportId: "scopeProbe",
+      httpStatus: login.httpStatus,
+      expectedStatus: "200",
+      durationMs: Date.now() - started,
+      ok: false,
+    });
+    return { ok: false, probeTransport, login };
+  }
+  logCompanyScopeDiagnostic(log, {
+    phase: `${stage}_probe_login_ok`,
+    transportId: "scopeProbe",
+    httpStatus: login.httpStatus,
+    expectedStatus: "200",
+    cookieNamesAfter: getTransportCookieNames(probeTransport),
+    sessionRoleAfter: canonicalStoredRole(login.role || login.user?.role),
+    durationMs: Date.now() - started,
+    ok: true,
+  });
+  return { ok: true, probeTransport, login };
+}
+
+export function assertAdminTransportUntouchedByProbe(adminTransport, beforeCookies, afterCookies, sessionAfter, label) {
+  if (detectTransportCookieMutation(beforeCookies, afterCookies)) {
+    return {
+      ok: false,
+      failureReason: `${label}: negative scope probe mutated admin transport cookies.`,
+      remediation: "Run invalid company/masterSheet probes on an isolated scopeProbe transport.",
+    };
+  }
+  if (sessionAfter.httpStatus !== 200 || sessionAfter.role !== "Admin" || sessionAfter.companyContextValid === false) {
+    return {
+      ok: false,
+      failureReason: `${label}: admin session is no longer valid after scope probe (HTTP ${sessionAfter.httpStatus}, role=${sessionAfter.role || "(blank)"}).`,
+      remediation: "Inspect Set-Cookie on rejected scope probes and keep adminTransport immutable.",
+      httpStatus: sessionAfter.httpStatus,
+      reasonCode: sessionAfter.reasonCode,
+    };
+  }
+  return { ok: true };
+}
+
 /** Confirm the dedicated Admin transport still holds a valid Admin session (no re-login). */
 export async function verifyAdminTransportSession(adminTransport, log = () => {}, stage = "verify_admin_transport") {
   const started = Date.now();
@@ -1477,30 +1586,154 @@ export async function runProductionUsersPermissionsWorkflowChecks(config, transp
     if (reEnableFail) return reEnableFail;
 
     const companyScopeFail = await runStage("companyScope", async () => {
-      const adminSession = await verifyAdminTransportSession(adminTransport, logStage, "company_scope_admin_transport");
-      if (!adminSession.ok) {
+      const stageStarted = Date.now();
+      const adminSessionBefore = await verifyAdminTransportSession(adminTransport, logStage, "company_scope_admin_before");
+      if (!adminSessionBefore.ok) {
         return fail(
           "companyScope",
-          adminSession.failureReason || "Admin transport session was not valid for company scope probe.",
-          adminSession.remediation || "Inspect isolated admin transport session.",
-          adminSession.httpStatus,
-          adminSession.responseBody,
+          adminSessionBefore.failureReason || "Admin transport session was not valid before company scope probes.",
+          adminSessionBefore.remediation || "Inspect isolated admin transport session.",
+          adminSessionBefore.httpStatus,
+          adminSessionBefore.responseBody,
         );
       }
-      const mismatch = await adminRequest(
-        "PATCH",
-        userPatchPath(workflowContext.companyFolderId, workflowContext.auditorEmail, "invalid-master-sheet-id"),
-        { name: "Scope Probe", companyFolderId: workflowContext.companyFolderId, masterSheetId: "invalid-master-sheet-id" },
+      const adminSnapshotBefore = await readTransportSessionSnapshot(adminTransport);
+      const adminCookiesBaseline = getTransportCookieNames(adminTransport);
+
+      const probeSetup = await createIsolatedAdminProbeTransport(
+        createRoleTransportRaw,
+        wrapRoleTransport,
+        config,
+        logStage,
+        "company_scope",
       );
-      if (mismatch.status === 200 && mismatch.json?.ok === true) {
-        return fail("companyScope", "masterSheetId mismatch was accepted.", "Inspect company session scoping.");
+      if (!probeSetup.ok) {
+        return fail(
+          "companyScope",
+          probeSetup.login?.failureReason || "Could not establish isolated scope-probe Admin session.",
+          "Inspect smoke Admin login for scope probes.",
+          probeSetup.login?.httpStatus,
+          probeSetup.login?.responseBody,
+        );
       }
-      const folderMismatch = await adminRequest(
-        "GET",
-        usersPath("invalid-company-folder-id", workflowContext.masterSheetId),
+      const probeRequest = probeSetup.probeTransport.request.bind(probeSetup.probeTransport);
+
+      const patchRoute = userPatchPath(
+        workflowContext.companyFolderId,
+        workflowContext.auditorEmail,
+        "invalid-master-sheet-id",
       );
-      if (folderMismatch.status === 200 && Array.isArray(folderMismatch.json?.users) && folderMismatch.json.users.length > 0) {
-        return fail("companyScope", "Invalid company folder returned users.", "Inspect users list company scoping.");
+      const patchSafeRoute = formatSafeRequestUrl(config.apiBase, patchRoute);
+      const adminCookiesBeforePatch = getTransportCookieNames(adminTransport);
+      const mismatch = await probeRequest("PATCH", patchRoute, {
+        name: "Scope Probe",
+        companyFolderId: workflowContext.companyFolderId,
+        masterSheetId: "invalid-master-sheet-id",
+      });
+      const adminCookiesAfterPatch = getTransportCookieNames(adminTransport);
+      const adminSnapshotAfterPatch = await readTransportSessionSnapshot(adminTransport);
+      const patchRejected = !(mismatch.status === 200 && mismatch.json?.ok === true);
+      logCompanyScopeDiagnostic(logStage, {
+        phase: "master_sheet_mismatch_patch",
+        method: "PATCH",
+        safeRoute: patchSafeRoute,
+        transportId: "scopeProbe",
+        httpStatus: mismatch.status,
+        expectedStatus: "403 or non-ok",
+        cookieNamesBefore: adminCookiesBeforePatch,
+        cookieNamesAfter: adminCookiesAfterPatch,
+        setCookieReturned: detectTransportCookieMutation(adminCookiesBeforePatch, adminCookiesAfterPatch),
+        sessionRoleBefore: adminSnapshotBefore.role,
+        sessionRoleAfter: adminSnapshotAfterPatch.role,
+        companyContextValid: adminSnapshotAfterPatch.companyContextValid,
+        reasonCode: adminSnapshotAfterPatch.reasonCode,
+        durationMs: Date.now() - stageStarted,
+        ok: patchRejected,
+      });
+      if (!patchRejected) {
+        return fail("companyScope", "masterSheetId mismatch was accepted.", "Inspect company session scoping.", mismatch.status, mismatch.json);
+      }
+      const patchIntegrity = assertAdminTransportUntouchedByProbe(
+        adminTransport,
+        adminCookiesBeforePatch,
+        adminCookiesAfterPatch,
+        adminSnapshotAfterPatch,
+        "masterSheetId mismatch PATCH",
+      );
+      if (!patchIntegrity.ok) {
+        return fail(
+          "companyScope",
+          patchIntegrity.failureReason,
+          patchIntegrity.remediation,
+          patchIntegrity.httpStatus,
+          { reasonCode: patchIntegrity.reasonCode },
+        );
+      }
+
+      const folderRoute = usersPath("invalid-company-folder-id", workflowContext.masterSheetId);
+      const folderSafeRoute = formatSafeRequestUrl(config.apiBase, folderRoute);
+      const adminCookiesBeforeGet = getTransportCookieNames(adminTransport);
+      const folderMismatch = await probeRequest("GET", folderRoute);
+      const adminCookiesAfterGet = getTransportCookieNames(adminTransport);
+      const adminSnapshotAfterGet = await readTransportSessionSnapshot(adminTransport);
+      const folderRejected = !(
+        folderMismatch.status === 200 &&
+        Array.isArray(folderMismatch.json?.users) &&
+        folderMismatch.json.users.length > 0
+      );
+      logCompanyScopeDiagnostic(logStage, {
+        phase: "invalid_company_folder_get",
+        method: "GET",
+        safeRoute: folderSafeRoute,
+        transportId: "scopeProbe",
+        httpStatus: folderMismatch.status,
+        expectedStatus: "403 or empty users",
+        cookieNamesBefore: adminCookiesBeforeGet,
+        cookieNamesAfter: adminCookiesAfterGet,
+        setCookieReturned: detectTransportCookieMutation(adminCookiesBeforeGet, adminCookiesAfterGet),
+        sessionRoleBefore: adminSnapshotAfterPatch.role,
+        sessionRoleAfter: adminSnapshotAfterGet.role,
+        companyContextValid: adminSnapshotAfterGet.companyContextValid,
+        reasonCode: adminSnapshotAfterGet.reasonCode,
+        durationMs: Date.now() - stageStarted,
+        ok: folderRejected,
+      });
+      if (!folderRejected) {
+        return fail("companyScope", "Invalid company folder returned users.", "Inspect users list company scoping.", folderMismatch.status, folderMismatch.json);
+      }
+      const getIntegrity = assertAdminTransportUntouchedByProbe(
+        adminTransport,
+        adminCookiesBeforeGet,
+        adminCookiesAfterGet,
+        adminSnapshotAfterGet,
+        "invalid company folder GET",
+      );
+      if (!getIntegrity.ok) {
+        return fail(
+          "companyScope",
+          getIntegrity.failureReason,
+          getIntegrity.remediation,
+          getIntegrity.httpStatus,
+          { reasonCode: getIntegrity.reasonCode },
+        );
+      }
+
+      if (detectTransportCookieMutation(adminCookiesBaseline, getTransportCookieNames(adminTransport))) {
+        return fail(
+          "companyScope",
+          "Admin transport cookies changed during company scope probes.",
+          "Keep negative probes on isolated scopeProbe transport only.",
+        );
+      }
+      const adminSessionAfter = await verifyAdminTransportSession(adminTransport, logStage, "company_scope_admin_after");
+      if (!adminSessionAfter.ok) {
+        return fail(
+          "companyScope",
+          adminSessionAfter.failureReason || "Admin transport session was corrupted after company scope probes.",
+          adminSessionAfter.remediation || "Inspect Set-Cookie absorption on rejected scope probes.",
+          adminSessionAfter.httpStatus,
+          adminSessionAfter.responseBody,
+        );
       }
       pass("companyScope");
       return null;
@@ -1508,27 +1741,154 @@ export async function runProductionUsersPermissionsWorkflowChecks(config, transp
     if (companyScopeFail) return companyScopeFail;
 
     const crossCompanyFail = await runStage("crossCompanyIsolation", async () => {
-      const adminSession = await verifyAdminTransportSession(adminTransport, logStage, "cross_company_admin_transport");
-      if (!adminSession.ok) {
+      const stageStarted = Date.now();
+      const adminSessionBefore = await verifyAdminTransportSession(adminTransport, logStage, "cross_company_admin_before");
+      if (!adminSessionBefore.ok) {
         return fail(
           "crossCompanyIsolation",
-          adminSession.failureReason || "Admin transport session was not valid for cross-company probe.",
-          adminSession.remediation || "Inspect isolated admin transport session.",
-          adminSession.httpStatus,
-          adminSession.responseBody,
+          adminSessionBefore.failureReason || "Admin transport session was not valid before cross-company probes.",
+          adminSessionBefore.remediation || "Inspect isolated admin transport session.",
+          adminSessionBefore.httpStatus,
+          adminSessionBefore.responseBody,
         );
       }
-      const list = await adminRequest("GET", usersPath(CROSS_COMPANY_PROBE_FOLDER_ID, workflowContext.masterSheetId));
-      if (list.status === 200 && Array.isArray(list.json?.users) && list.json.users.some((item) => !isVerificationUserRecord(item))) {
-        return fail("crossCompanyIsolation", "Cross-company users list leaked operational users.", "Inspect company profile isolation.");
-      }
-      const patch = await adminRequest(
-        "PATCH",
-        userPatchPath(CROSS_COMPANY_PROBE_FOLDER_ID, workflowContext.auditorEmail, workflowContext.masterSheetId),
-        { name: "Cross-company probe", companyFolderId: CROSS_COMPANY_PROBE_FOLDER_ID, masterSheetId: workflowContext.masterSheetId },
+      const adminSnapshotBefore = await readTransportSessionSnapshot(adminTransport);
+      const adminCookiesBaseline = getTransportCookieNames(adminTransport);
+
+      const probeSetup = await createIsolatedAdminProbeTransport(
+        createRoleTransportRaw,
+        wrapRoleTransport,
+        config,
+        logStage,
+        "cross_company",
       );
-      if (patch.status === 200 && patch.json?.ok === true) {
-        return fail("crossCompanyIsolation", "Cross-company user mutation succeeded.", "Inspect company mismatch guards.");
+      if (!probeSetup.ok) {
+        return fail(
+          "crossCompanyIsolation",
+          probeSetup.login?.failureReason || "Could not establish isolated cross-company probe Admin session.",
+          "Inspect smoke Admin login for cross-company probes.",
+          probeSetup.login?.httpStatus,
+          probeSetup.login?.responseBody,
+        );
+      }
+      const probeRequest = probeSetup.probeTransport.request.bind(probeSetup.probeTransport);
+
+      const listRoute = usersPath(CROSS_COMPANY_PROBE_FOLDER_ID, workflowContext.masterSheetId);
+      const listSafeRoute = formatSafeRequestUrl(config.apiBase, listRoute);
+      const adminCookiesBeforeList = getTransportCookieNames(adminTransport);
+      const list = await probeRequest("GET", listRoute);
+      const adminCookiesAfterList = getTransportCookieNames(adminTransport);
+      const adminSnapshotAfterList = await readTransportSessionSnapshot(adminTransport);
+      const listIsolated = !(
+        list.status === 200 &&
+        Array.isArray(list.json?.users) &&
+        list.json.users.some((item) => !isVerificationUserRecord(item))
+      );
+      logCompanyScopeDiagnostic(logStage, {
+        phase: "cross_company_users_list",
+        method: "GET",
+        safeRoute: listSafeRoute,
+        transportId: "crossCompanyProbe",
+        httpStatus: list.status,
+        expectedStatus: "403 or verification-only users",
+        cookieNamesBefore: adminCookiesBeforeList,
+        cookieNamesAfter: adminCookiesAfterList,
+        setCookieReturned: detectTransportCookieMutation(adminCookiesBeforeList, adminCookiesAfterList),
+        sessionRoleBefore: adminSnapshotBefore.role,
+        sessionRoleAfter: adminSnapshotAfterList.role,
+        companyContextValid: adminSnapshotAfterList.companyContextValid,
+        reasonCode: adminSnapshotAfterList.reasonCode,
+        durationMs: Date.now() - stageStarted,
+        ok: listIsolated,
+      });
+      if (!listIsolated) {
+        return fail("crossCompanyIsolation", "Cross-company users list leaked operational users.", "Inspect company profile isolation.", list.status, list.json);
+      }
+      const listIntegrity = assertAdminTransportUntouchedByProbe(
+        adminTransport,
+        adminCookiesBeforeList,
+        adminCookiesAfterList,
+        adminSnapshotAfterList,
+        "cross-company users list GET",
+      );
+      if (!listIntegrity.ok) {
+        return fail(
+          "crossCompanyIsolation",
+          listIntegrity.failureReason,
+          listIntegrity.remediation,
+          listIntegrity.httpStatus,
+          { reasonCode: listIntegrity.reasonCode },
+        );
+      }
+
+      const patchRoute = userPatchPath(
+        CROSS_COMPANY_PROBE_FOLDER_ID,
+        workflowContext.auditorEmail,
+        workflowContext.masterSheetId,
+      );
+      const patchSafeRoute = formatSafeRequestUrl(config.apiBase, patchRoute);
+      const adminCookiesBeforePatch = getTransportCookieNames(adminTransport);
+      const patch = await probeRequest("PATCH", patchRoute, {
+        name: "Cross-company probe",
+        companyFolderId: CROSS_COMPANY_PROBE_FOLDER_ID,
+        masterSheetId: workflowContext.masterSheetId,
+      });
+      const adminCookiesAfterPatch = getTransportCookieNames(adminTransport);
+      const adminSnapshotAfterPatch = await readTransportSessionSnapshot(adminTransport);
+      const patchRejected = !(patch.status === 200 && patch.json?.ok === true);
+      logCompanyScopeDiagnostic(logStage, {
+        phase: "cross_company_user_patch",
+        method: "PATCH",
+        safeRoute: patchSafeRoute,
+        transportId: "crossCompanyProbe",
+        httpStatus: patch.status,
+        expectedStatus: "403 or non-ok",
+        cookieNamesBefore: adminCookiesBeforePatch,
+        cookieNamesAfter: adminCookiesAfterPatch,
+        setCookieReturned: detectTransportCookieMutation(adminCookiesBeforePatch, adminCookiesAfterPatch),
+        sessionRoleBefore: adminSnapshotAfterList.role,
+        sessionRoleAfter: adminSnapshotAfterPatch.role,
+        companyContextValid: adminSnapshotAfterPatch.companyContextValid,
+        reasonCode: adminSnapshotAfterPatch.reasonCode,
+        durationMs: Date.now() - stageStarted,
+        ok: patchRejected,
+      });
+      if (!patchRejected) {
+        return fail("crossCompanyIsolation", "Cross-company user mutation succeeded.", "Inspect company mismatch guards.", patch.status, patch.json);
+      }
+      const patchIntegrity = assertAdminTransportUntouchedByProbe(
+        adminTransport,
+        adminCookiesBeforePatch,
+        adminCookiesAfterPatch,
+        adminSnapshotAfterPatch,
+        "cross-company user PATCH",
+      );
+      if (!patchIntegrity.ok) {
+        return fail(
+          "crossCompanyIsolation",
+          patchIntegrity.failureReason,
+          patchIntegrity.remediation,
+          patchIntegrity.httpStatus,
+          { reasonCode: patchIntegrity.reasonCode },
+        );
+      }
+
+      if (detectTransportCookieMutation(adminCookiesBaseline, getTransportCookieNames(adminTransport))) {
+        return fail(
+          "crossCompanyIsolation",
+          "Admin transport cookies changed during cross-company probes.",
+          "Keep negative probes on isolated crossCompanyProbe transport only.",
+        );
+      }
+      const adminSessionAfter = await verifyAdminTransportSession(adminTransport, logStage, "cross_company_admin_after");
+      if (!adminSessionAfter.ok) {
+        return fail(
+          "crossCompanyIsolation",
+          adminSessionAfter.failureReason || "Admin transport session was corrupted after cross-company probes.",
+          adminSessionAfter.remediation || "Inspect Set-Cookie absorption on rejected cross-company probes.",
+          adminSessionAfter.httpStatus,
+          adminSessionAfter.responseBody,
+        );
       }
       pass("crossCompanyIsolation");
       return null;

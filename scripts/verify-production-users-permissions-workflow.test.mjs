@@ -8,10 +8,14 @@ import { COMPANY_SESSION_COOKIE } from "./lib/production-auth-health-core.mjs";
 import {
   CHECK_KEYS,
   CHECK_LABELS,
+  assertAdminTransportUntouchedByProbe,
   buildUsersListSnapshot,
+  detectTransportCookieMutation,
   ensureAdminSmokeSession,
   formatUsersPermissionsWorkflowReport,
+  getTransportCookieNames,
   loadUsersPermissionsWorkflowConfig,
+  logCompanyScopeDiagnostic,
   logRoleChangeDiagnostic,
   logRoleDiscoveryDiagnostic,
   logDisableUserDiagnostic,
@@ -86,6 +90,21 @@ function mapUser(record) {
   };
 }
 
+function isScopeProbePath(path = "") {
+  return (
+    path.includes("invalid-master-sheet-id") ||
+    path.includes("invalid-company-folder-id") ||
+    path.includes("bert-smoke-cross-company-denied")
+  );
+}
+
+function maybeClearSessionOnScopeProbe(path, cookies, options = {}) {
+  if (!options.scopeProbeClearsSessionCookie || !isScopeProbePath(path)) {
+    return;
+  }
+  cookies.delete(COMPANY_SESSION_COOKIE);
+}
+
 function createTransportInstance(options = {}) {
   const cookies = new Map();
   const store = options.store;
@@ -96,6 +115,7 @@ function createTransportInstance(options = {}) {
   let adminSmokeLoginAttempts = 0;
 
   const request = async (method, path, body) => {
+    maybeClearSessionOnScopeProbe(path, cookies, options);
     if (method === "GET" && path.includes("/users") && !path.includes("verification")) {
       if (!path.includes("bert-smoke-cross-company-denied") && !path.includes("invalid-company-folder-id")) {
         metrics.usersListGetCount += 1;
@@ -154,7 +174,7 @@ function createTransportInstance(options = {}) {
           },
         };
       }
-      return { status: 200, json: { ok: true, user: { email: currentEmail, role: currentRole }, company: { companyFolderId: baseConfig.companyFolderId } } };
+      return { status: 200, json: { ok: true, user: { email: currentEmail, role: currentRole }, company: { companyFolderId: baseConfig.companyFolderId }, companyContextValid: true } };
     }
     if (method === "GET" && path.includes("/users") && !path.includes("verification")) {
       if (options.usersUnavailable) {
@@ -194,6 +214,7 @@ function createTransportInstance(options = {}) {
       return { status: 200, json: { ok: true, user: mapUser(user) } };
     }
     if (method === "PATCH" && path.includes("/users/")) {
+      maybeClearSessionOnScopeProbe(path, cookies, options);
       if (currentRole !== "Admin") {
         return { status: 403, json: { ok: false, blocker: "forbidden" } };
       }
@@ -906,4 +927,76 @@ test("cleanup still works after disable failure path", async () => {
   const { result } = await runWorkflow({ cleanupFails: true });
   assert.equal(result.checks.disableUser.status, "PASS");
   assert.equal(result.checks.cleanup.status, "FAIL");
+});
+
+test("scope probe clears only probe transport session cookie", async () => {
+  const factory = createTransportFactory({ scopeProbeClearsSessionCookie: true });
+  const adminTransport = factory();
+  await adminTransport.request("POST", "/api/auth/company/login", {
+    username: baseConfig.expectedEmail,
+    password: baseConfig.password,
+    companyFolderId: baseConfig.companyFolderId,
+    masterSheetId: baseConfig.masterSheetId,
+  });
+  const probeTransport = factory();
+  await probeTransport.request("POST", "/api/auth/company/login", {
+    username: baseConfig.expectedEmail,
+    password: baseConfig.password,
+    companyFolderId: baseConfig.companyFolderId,
+    masterSheetId: baseConfig.masterSheetId,
+  });
+  await probeTransport.request(
+    "PATCH",
+    `/api/companies/${baseConfig.companyFolderId}/users/${encodeURIComponent(buildProductionVerificationUserEmail(TEST_RUN_ID, "auditor"))}?masterSheetId=invalid-master-sheet-id`,
+    { name: "Scope Probe", masterSheetId: "invalid-master-sheet-id" },
+  );
+  assert.ok(adminTransport.getCookies()[COMPANY_SESSION_COOKIE], "admin cookie preserved on isolated probe");
+  assert.equal(probeTransport.getCookies()[COMPANY_SESSION_COOKIE], undefined, "probe cookie cleared by rejected scope probe");
+});
+
+test("company scope rejects invalid probes without corrupting admin transport", async () => {
+  const { result } = await runWorkflow({ scopeProbeClearsSessionCookie: true });
+  assert.equal(result.checks.companyScope.status, "PASS");
+  assert.equal(result.checks.crossCompanyIsolation.status, "PASS");
+  assert.equal(result.checks.cleanup.status, "PASS");
+});
+
+test("logCompanyScopeDiagnostic omits secrets and cookie values", () => {
+  const lines = [];
+  logCompanyScopeDiagnostic((line) => lines.push(line), {
+    phase: "master_sheet_mismatch_patch",
+    method: "PATCH",
+    safeRoute: "https://api.usebert.co.uk/api/companies/folder/users",
+    transportId: "scopeProbe",
+    httpStatus: 403,
+    expectedStatus: "403",
+    cookieNamesBefore: ["bert_company_session"],
+    cookieNamesAfter: ["bert_company_session"],
+    setCookieReturned: false,
+    sessionRoleBefore: "Admin",
+    sessionRoleAfter: "Admin",
+    companyContextValid: true,
+    password: "secret",
+    token: "abc",
+  });
+  const joined = lines.join("\n");
+  assert.equal(joined.includes("secret"), false);
+  assert.equal(joined.includes("abc"), false);
+  assert.match(joined, /company-scope/);
+});
+
+test("detectTransportCookieMutation flags cookie jar changes", () => {
+  assert.equal(detectTransportCookieMutation(["bert_company_session"], ["bert_company_session"]), false);
+  assert.equal(detectTransportCookieMutation(["bert_company_session"], []), true);
+});
+
+test("assertAdminTransportUntouchedByProbe rejects admin session corruption", () => {
+  const result = assertAdminTransportUntouchedByProbe(
+    {},
+    ["bert_company_session"],
+    [],
+    { httpStatus: 409, role: "User", companyContextValid: false, reasonCode: "COMPANY_CONTEXT_INVALID" },
+    "probe",
+  );
+  assert.equal(result.ok, false);
 });
