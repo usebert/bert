@@ -1,4 +1,4 @@
-import { useMemo, useState, type ComponentType } from "react";
+import { useEffect, useCallback, useMemo, useState, type ComponentType } from "react";
 import { useTranslation } from "react-i18next";
 import type { TFunction } from "i18next";
 import type { Role } from "../../permissions";
@@ -583,7 +583,7 @@ export function UsersInvitesPilotPanel({
   const resolvedCompanyName = String(companyName || "").trim();
   const hasCompanyContext = Boolean(resolvedCompanyId && resolvedCompanyName);
 
-  const refreshStructureCatalog = async () => {
+  const refreshStructureCatalog = useCallback(async () => {
     if (!resolvedCompanyId) {
       setStructureCatalog({ sites: [], departments: [], areas: [] });
       return;
@@ -600,7 +600,15 @@ export function UsersInvitesPilotPanel({
       setStructureCatalog({ sites: [], departments: [], areas: [] });
       console.error("Could not load company structure.", error);
     }
-  };
+  }, [resolvedCompanyId, resolvedMasterSheetId]);
+
+  useEffect(() => {
+    if (topView !== "company" || !resolvedCompanyId) {
+      return;
+    }
+
+    void refreshStructureCatalog();
+  }, [topView, resolvedCompanyId, refreshStructureCatalog]);
   const invitePermissionSession = {
     kind: isMasterActor ? "master" : "company",
     role: currentUser.role,
@@ -753,10 +761,7 @@ export function UsersInvitesPilotPanel({
             </button>
             <button
               type="button"
-              onClick={() => {
-                setTopView("company");
-                void refreshStructureCatalog();
-              }}
+              onClick={() => setTopView("company")}
               className="min-h-[6.5rem] rounded-2xl border border-slate-200 bg-white px-5 py-4 text-left"
             >
               <p className="text-lg font-semibold text-slate-900">COMPANY</p>
