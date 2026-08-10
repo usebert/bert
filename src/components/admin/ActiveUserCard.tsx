@@ -378,6 +378,7 @@ export function ActiveUserCard({
               if (!name?.trim() || !companyFolderId) {
                 return;
               }
+              setAccessError(null);
               void createCompanySite(companyFolderId, {
                 name: name.trim(),
                 masterSheetId,
@@ -392,6 +393,8 @@ export function ActiveUserCard({
                     await onAccessUpdated(member);
                   }
                 }
+              }).catch((error) => {
+                setAccessError(error instanceof Error ? error.message : "Could not add site.");
               });
             }}
           />
@@ -418,6 +421,7 @@ export function ActiveUserCard({
               if (!name?.trim() || !companyFolderId) {
                 return;
               }
+              setAccessError(null);
               void createCompanyDepartment(companyFolderId, {
                 name: name.trim(),
                 masterSheetId,
@@ -435,6 +439,8 @@ export function ActiveUserCard({
                     await onAccessUpdated(member);
                   }
                 }
+              }).catch((error) => {
+                setAccessError(error instanceof Error ? error.message : "Could not add department.");
               });
             }}
           />
@@ -461,6 +467,7 @@ export function ActiveUserCard({
               if (!name?.trim() || !companyFolderId) {
                 return;
               }
+              setAccessError(null);
               void createCompanyStructureArea(companyFolderId, {
                 name: name.trim(),
                 masterSheetId,
@@ -475,6 +482,8 @@ export function ActiveUserCard({
                     await onAccessUpdated(member);
                   }
                 }
+              }).catch((error) => {
+                setAccessError(error instanceof Error ? error.message : "Could not add area.");
               });
             }}
           />
@@ -531,7 +540,7 @@ export function ActiveUserCard({
               onClick={() => void saveEdit()}
               className={`h-10 rounded-xl bg-slate-900 px-4 text-sm font-semibold text-white disabled:opacity-60 ${slatePrimaryCtaInteract}`}
             >
-              {editing ? t("common.saving") : t("templates.saveChanges")}
+              {editing ? t("common.saving") : t("common.save")}
             </button>
             <button
               type="button"

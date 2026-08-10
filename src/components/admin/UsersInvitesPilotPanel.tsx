@@ -31,7 +31,7 @@ import { EmptyPanel, MiniMetric, SectionHeader } from "../dashboard/DashboardPri
 import { canManageCompanyMembers } from "../../permissions";
 import { canArchiveCompanyMember } from "../../utils/archivePermissions";
 import type { CompanyMember } from "../../services/companyUserService";
-import type { StructureEntity } from "../../services/companyStructureService";
+import { fetchCompanyStructure, type StructureEntity } from "../../services/companyStructureService";
 import { InviteStatusLegend } from "../InviteStatusLegend";
 import { WhatHappensNextPanel } from "../WhatHappensNextPanel";
 import { CompanyStructurePanel } from "./CompanyStructurePanel";
@@ -582,6 +582,25 @@ export function UsersInvitesPilotPanel({
   const resolvedMasterSheetId = String(masterSheetId || "").trim();
   const resolvedCompanyName = String(companyName || "").trim();
   const hasCompanyContext = Boolean(resolvedCompanyId && resolvedCompanyName);
+
+  const refreshStructureCatalog = async () => {
+    if (!resolvedCompanyId) {
+      setStructureCatalog({ sites: [], departments: [], areas: [] });
+      return;
+    }
+
+    try {
+      const data = await fetchCompanyStructure(resolvedCompanyId, resolvedMasterSheetId);
+      setStructureCatalog({
+        sites: data.sites || [],
+        departments: data.departments || [],
+        areas: data.areas || [],
+      });
+    } catch (error) {
+      setStructureCatalog({ sites: [], departments: [], areas: [] });
+      console.error("Could not load company structure.", error);
+    }
+  };
   const invitePermissionSession = {
     kind: isMasterActor ? "master" : "company",
     role: currentUser.role,
@@ -734,7 +753,10 @@ export function UsersInvitesPilotPanel({
             </button>
             <button
               type="button"
-              onClick={() => setTopView("company")}
+              onClick={() => {
+                setTopView("company");
+                void refreshStructureCatalog();
+              }}
               className="min-h-[6.5rem] rounded-2xl border border-slate-200 bg-white px-5 py-4 text-left"
             >
               <p className="text-lg font-semibold text-slate-900">COMPANY</p>
@@ -1144,7 +1166,10 @@ export function UsersInvitesPilotPanel({
                     onArchivedUser={onArchivedCompanyMember}
                     onArchiveError={onArchiveError}
                     onArchiveSuccess={onArchiveSuccess}
-                    onAccessUpdated={() => onResyncUsers()}
+                    onAccessUpdated={async () => {
+                      await refreshStructureCatalog();
+                      await onResyncUsers();
+                    }}
                     onRemove={
                       canManageCompanyMembers(currentUser.role)
                         ? (target) =>
